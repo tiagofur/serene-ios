@@ -1,0 +1,54 @@
+# Xcode
+*.xcodeproj/
+!*.xcodeproj/project.pbxproj
+!*.xcodeproj/xcshareddata/
+*.xcworkspace/
+xcuserdata/
+*.xccheckout
+*.moved-aside
+*.xcuserstate
+IDEWorkspaceChecks.plist
+
+# Build
+build/
+DerivedData/
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+# CocoaPods
+Pods/
+
+# Swift Package Manager
+.build/
+.swiftpm/
+Package.resolved
+
+# Fastlane
+fastlane/report.xml
+fastlane/Preview.html
+fastlane/screenshots/
+fastlane/test_output/
+
+# OS
+.DS_Store
+*.swp
+*~
+.env
+.env.*
+
+# IDE
+.idea/
+.vscode/
+
+# Provisioning
+*.mobileprovision
+*.provisionprofile
+
+# Keys & secrets
+*.p8
+*.p12
+*.key
+*.pem
+credentials.json
+GoogleService-Info.plist
