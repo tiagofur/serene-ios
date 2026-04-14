@@ -79,17 +79,23 @@ struct HistoryView: View {
             .searchable(text: $searchText, prompt: "Buscar en tus gratitudes...")
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        showFilters = true
-                    } label: {
-                        ZStack(alignment: .topTrailing) {
-                            Image(systemName: "line.3.horizontal.decrease.circle")
-                                .foregroundColor(SereneColors.sage(colorScheme))
-                            if filter.isActive {
-                                Circle()
-                                    .fill(SereneColors.arena(colorScheme))
-                                    .frame(width: 8, height: 8)
-                                    .offset(x: 2, y: -2)
+                    HStack(spacing: Spacing.md) {
+                        if appState.userTier == .pro && !filteredGratitudes.isEmpty {
+                            ExportPDFButton(entries: filteredGratitudes)
+                                .environmentObject(appState)
+                        }
+                        Button {
+                            showFilters = true
+                        } label: {
+                            ZStack(alignment: .topTrailing) {
+                                Image(systemName: "line.3.horizontal.decrease.circle")
+                                    .foregroundColor(SereneColors.sage(colorScheme))
+                                if filter.isActive {
+                                    Circle()
+                                        .fill(SereneColors.arena(colorScheme))
+                                        .frame(width: 8, height: 8)
+                                        .offset(x: 2, y: -2)
+                                }
                             }
                         }
                     }

@@ -15,6 +15,11 @@ struct InsightsView: View {
     @State private var selectedSummary: WeeklySummaryEntry?
     @State private var isGeneratingSummary = false
 
+    // v1.2 Pro insights
+    @State private var sentimentPoints: [SentimentPoint] = []
+    @State private var connections: [EmotionalConnection] = []
+    @State private var languageEvolution: LanguageEvolution?
+
     var body: some View {
         NavigationStack {
             ZStack {
@@ -26,12 +31,15 @@ struct InsightsView: View {
                         activityCalendar
                         weeklySummarySection
                         topTopicsSection
-                        sentimentTrendCard
 
-                        if appState.userTier != .pro {
-                            proLockedSection
-                        } else {
+                        if appState.userTier == .pro {
+                            SentimentChartView(points: sentimentPoints)
+                            ConnectionsView(connections: connections)
+                            LanguageEvolutionView(evolution: languageEvolution)
                             historicalSummariesSection
+                        } else {
+                            sentimentTrendCard
+                            proLockedSection
                         }
                     }
                     .padding(.horizontal, Spacing.lg)
@@ -45,7 +53,23 @@ struct InsightsView: View {
             }
             .task {
                 await maybeGenerateWeeklySummary()
+                await loadProInsights()
             }
+            .onChange(of: recentGratitudes.count) { _, _ in
+                Task { await loadProInsights() }
+            }
+        }
+    }
+
+    // MARK: - Pro insights loading
+    private func loadProInsights() async {
+        guard appState.userTier == .pro else { return }
+        await MainActor.run {
+            sentimentPoints = PatternDetectionService.shared.sentimentSeries(context: modelContext)
+            connections = PatternDetectionService.shared.detectConnections(context: modelContext)
+            languageEvolution = PatternDetectionService.shared.analyzeLanguageEvolution(context: modelContext)
+            // Persist snapshot for later reference in patterns history
+            PatternDetectionService.shared.snapshotConnections(connections, context: modelContext)
         }
     }
 
@@ -374,11 +398,12 @@ struct InsightsView: View {
             }
 
             VStack(alignment: .leading, spacing: Spacing.sm) {
-                proFeatureRow("Resúmenes semanales ilimitados")
-                proFeatureRow("Histórico completo de resúmenes")
-                proFeatureRow("Patrones emocionales avanzados")
-                proFeatureRow("Conexiones inesperadas entre entradas")
+                proFeatureRow("Gráfica de tono emocional 30 días")
+                proFeatureRow("Conexiones inesperadas entre temas")
+                proFeatureRow("Evolución de tu lenguaje emocional")
+                proFeatureRow("Modo difícil: coach conversacional")
                 proFeatureRow("Exportar historial en PDF")
+                proFeatureRow("Resúmenes semanales ilimitados")
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 

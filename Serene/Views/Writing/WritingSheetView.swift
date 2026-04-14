@@ -3,6 +3,7 @@ import SwiftUI
 struct WritingSheetView: View {
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var appState: AppState
 
     let slotIndex: Int
     let prompt: String
@@ -17,6 +18,7 @@ struct WritingSheetView: View {
     @State private var showCoachResponse = false
     @State private var displayedResponse = ""
     @State private var isSaved = false
+    @State private var showDifficultMode = false
     @FocusState private var isTextFieldFocused: Bool
 
     private var slotLabel: String {
@@ -58,6 +60,11 @@ struct WritingSheetView: View {
                         // Photo button (optional)
                         photoButton
 
+                        // Difficult mode trigger (Pro feature)
+                        if appState.userTier == .pro && !isSaved {
+                            difficultModeButton
+                        }
+
                         // Coach response area
                         if isLoadingCoach {
                             TypingDotsView()
@@ -85,6 +92,13 @@ struct WritingSheetView: View {
                         .padding(.bottom, Spacing.md)
                 }
             }
+        }
+        .sheet(isPresented: $showDifficultMode) {
+            DifficultModeView { crystallizedGratitude in
+                gratitudeText = crystallizedGratitude
+                isTextFieldFocused = true
+            }
+            .environmentObject(appState)
         }
         .onChange(of: coachResponse) { _, newValue in
             if !newValue.isEmpty && isSaved {
@@ -199,6 +213,27 @@ struct WritingSheetView: View {
             .overlay(
                 RoundedRectangle(cornerRadius: Radius.sm)
                     .stroke(SereneColors.borderDefault(colorScheme), style: StrokeStyle(lineWidth: 1, dash: [5, 3]))
+            )
+        }
+    }
+
+    // MARK: - Difficult Mode Button (Pro)
+    private var difficultModeButton: some View {
+        Button {
+            showDifficultMode = true
+        } label: {
+            HStack(spacing: Spacing.sm) {
+                Image(systemName: "heart.circle")
+                    .font(.system(size: 14))
+                Text("No encuentro nada hoy")
+                    .sereneLabel()
+            }
+            .foregroundColor(SereneColors.rosa(colorScheme))
+            .padding(.horizontal, Spacing.md)
+            .padding(.vertical, Spacing.sm + 2)
+            .background(
+                Capsule()
+                    .fill(SereneColors.rosaSoft(colorScheme).opacity(0.5))
             )
         }
     }
