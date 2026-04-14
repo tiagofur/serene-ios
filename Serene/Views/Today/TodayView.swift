@@ -43,6 +43,16 @@ struct TodayView: View {
                 )
                 .transition(.opacity.combined(with: .move(edge: .bottom)))
             }
+
+            if viewModel.showMilestone {
+                StreakMilestoneView(milestone: viewModel.activeMilestone) {
+                    withAnimation(.easeInOut(duration: 0.3)) {
+                        viewModel.showMilestone = false
+                    }
+                }
+                .transition(.opacity)
+                .zIndex(10)
+            }
         }
         .sheet(isPresented: $viewModel.isWritingSheetPresented) {
             WritingSheetView(
@@ -65,8 +75,27 @@ struct TodayView: View {
             .presentationDetents([.medium, .large])
             .presentationDragIndicator(.visible)
         }
+        .sheet(isPresented: $viewModel.showRescueSheet) {
+            StreakRescueSheet(
+                previousStreak: viewModel.streakData?.currentStreak ?? 0,
+                canRescue: viewModel.streakData?.canRescue ?? false,
+                onRescue: {
+                    viewModel.performRescue(
+                        context: modelContext,
+                        userName: appState.userName
+                    )
+                }
+            )
+            .presentationDetents([.medium])
+        }
         .onAppear {
             viewModel.loadTodayData(context: modelContext)
+            // Check if we should offer a streak rescue
+            if viewModel.shouldOfferRescue() {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+                    viewModel.showRescueSheet = true
+                }
+            }
         }
     }
 

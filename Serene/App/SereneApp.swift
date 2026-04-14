@@ -27,17 +27,20 @@ struct SereneApp: App {
 
     var body: some Scene {
         WindowGroup {
-            if hasCompletedOnboarding {
-                MainTabView()
-                    .environmentObject(appState)
-            } else {
-                OnboardingView {
-                    withAnimation(.easeInOut(duration: 0.5)) {
-                        hasCompletedOnboarding = true
+            Group {
+                if hasCompletedOnboarding {
+                    MainTabView()
+                        .environmentObject(appState)
+                } else {
+                    OnboardingView {
+                        withAnimation(.easeInOut(duration: 0.5)) {
+                            hasCompletedOnboarding = true
+                        }
                     }
+                    .environmentObject(appState)
                 }
-                .environmentObject(appState)
             }
+            .preferredColorScheme(appState.appearance.colorScheme)
         }
         .modelContainer(sharedModelContainer)
     }

@@ -6,6 +6,7 @@ import Combine
 final class TodayViewModel: ObservableObject {
     // MARK: - Published State
     @Published var todayGratitudes: [GratitudeEntry] = []
+    @Published var pastWeekGratitudes: [GratitudeEntry] = []
     @Published var streakData: StreakData?
     @Published var isWritingSheetPresented = false
     @Published var selectedSlotIndex: Int = 0
@@ -13,6 +14,9 @@ final class TodayViewModel: ObservableObject {
     @Published var extrasUnlocked = false
     @Published var isLoadingCoachResponse = false
     @Published var coachResponseText = ""
+    @Published var showMilestone = false
+    @Published var activeMilestone: Int = 0
+    @Published var showRescueSheet = false
 
     // MARK: - Computed Properties
     var completedBaseCount: Int {
@@ -64,6 +68,15 @@ final class TodayViewModel: ObservableObject {
     func loadTodayData(context: ModelContext) {
         todayGratitudes = GratitudeService.shared.todayGratitudes(context: context)
 
+        // Past 7 days for accurate week dots
+        let calendar = Calendar.current
+        let weekAgo = calendar.date(byAdding: .day, value: -7, to: Date()) ?? Date()
+        pastWeekGratitudes = GratitudeService.shared.gratitudes(
+            from: weekAgo,
+            to: Date(),
+            context: context
+        )
+
         let streakDescriptor = FetchDescriptor<StreakData>()
         if let existing = try? context.fetch(streakDescriptor).first {
             existing.checkMonthlyReset()
@@ -75,6 +88,27 @@ final class TodayViewModel: ObservableObject {
         }
 
         extrasUnlocked = allBaseCompleted
+    }
+
+    // MARK: - Streak actions
+
+    func shouldOfferRescue() -> Bool {
+        guard let streak = streakData,
+              let last = streak.lastEntryDate else { return false }
+        let yesterday = Calendar.current.date(byAdding: .day, value: -1, to: Date()) ?? Date()
+        let dayBeforeYesterday = Calendar.current.date(byAdding: .day, value: -2, to: Date()) ?? Date()
+        // Offer rescue if last entry was 2 days ago (missed yesterday) and streak was meaningful
+        return last < yesterday.startOfDay && last >= dayBeforeYesterday.startOfDay
+            && streak.currentStreak >= 3 && streak.canRescue
+    }
+
+    func performRescue(context: ModelContext, userName: String) {
+        guard let streak = streakData else { return }
+        _ = streak.useRescue()
+        try? context.save()
+        // Cancel any pending streak protection notification
+        SmartNotificationService.shared.cancelStreakProtection()
+        loadTodayData(context: context)
     }
 
     func openWritingSheet(for slotIndex: Int) {
@@ -121,6 +155,15 @@ final class TodayViewModel: ObservableObject {
         if completedBaseCount == 3 && !extrasUnlocked {
             // Update streak
             streakData?.recordEntry()
+            try? context.save()
+
+            let streakAfter = streakData?.currentStreak ?? 0
+
+            // Cancel streak protection (user has written today)
+            SmartNotificationService.shared.cancelStreakProtection()
+
+            // Check for milestone
+            let milestone = milestoneForStreak(streakAfter)
 
             // Show celebration after a brief delay
             try? await Task.sleep(nanoseconds: 500_000_000)
@@ -128,6 +171,40 @@ final class TodayViewModel: ObservableObject {
                 showCelebration = true
                 extrasUnlocked = true
             }
+
+            // Queue milestone celebration after main celebration
+            if let milestone {
+                try? await Task.sleep(nanoseconds: 2_000_000_000)
+                activeMilestone = milestone
+                withAnimation(.easeInOut(duration: 0.4)) {
+                    showMilestone = true
+                }
+                SmartNotificationService.shared.sendMilestoneNotification(
+                    streak: milestone,
+                    userName: userName
+                )
+            }
+
+            // Schedule streak protection for tomorrow night if streak is meaningful
+            if streakAfter >= 3 {
+                SmartNotificationService.shared.scheduleStreakProtection(
+                    userName: userName,
+                    currentStreak: streakAfter
+                )
+            }
+
+            // Refresh smart nudge based on usage patterns
+            SmartNotificationService.shared.scheduleSmartNudge(
+                userName: userName,
+                context: context
+            )
+        }
+    }
+
+    private func milestoneForStreak(_ streak: Int) -> Int? {
+        switch streak {
+        case 7, 30, 100: return streak
+        default: return nil
         }
     }
 
@@ -149,11 +226,9 @@ final class TodayViewModel: ObservableObject {
             } else if isToday {
                 return completedBaseCount >= 3 ? .done : .today
             } else {
-                // Check if there are gratitudes for this day
-                let hasEntries = todayGratitudes.contains { entry in
+                let hasEntries = pastWeekGratitudes.contains { entry in
                     calendar.isDate(entry.createdAt, inSameDayAs: date)
                 }
-                // For past days, we'd need to query — simplified for now
                 return hasEntries ? .done : .empty
             }
         }

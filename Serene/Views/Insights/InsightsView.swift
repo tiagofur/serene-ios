@@ -12,6 +12,9 @@ struct InsightsView: View {
     @Query(sort: \GratitudeEntry.createdAt, order: .reverse)
     private var recentGratitudes: [GratitudeEntry]
 
+    @State private var selectedSummary: WeeklySummaryEntry?
+    @State private var isGeneratingSummary = false
+
     var body: some View {
         NavigationStack {
             ZStack {
@@ -20,25 +23,15 @@ struct InsightsView: View {
 
                 ScrollView(.vertical, showsIndicators: false) {
                     VStack(alignment: .leading, spacing: Spacing.lg) {
-                        // Activity calendar (GitHub-style)
                         activityCalendar
-
-                        // Latest weekly summary
-                        if let latest = summaries.first {
-                            weeklySummaryCard(latest)
-                        } else {
-                            weeklySummaryPlaceholder
-                        }
-
-                        // Top topics
+                        weeklySummarySection
                         topTopicsSection
-
-                        // Sentiment trend
                         sentimentTrendCard
 
-                        // Pro features locked
                         if appState.userTier != .pro {
                             proLockedSection
+                        } else {
+                            historicalSummariesSection
                         }
                     }
                     .padding(.horizontal, Spacing.lg)
@@ -46,27 +39,53 @@ struct InsightsView: View {
                 }
             }
             .navigationTitle("Insights")
+            .sheet(item: $selectedSummary) { summary in
+                WeeklySummaryDetailView(summary: summary)
+                    .environmentObject(appState)
+            }
+            .task {
+                await maybeGenerateWeeklySummary()
+            }
         }
     }
 
-    // MARK: - Activity Calendar (GitHub contributions style)
+    // MARK: - Auto-generate weekly summary
+    private func maybeGenerateWeeklySummary() async {
+        // Only generate on Mondays or if there's no summary for this week
+        let weekday = Calendar.current.component(.weekday, from: Date())
+        let shouldAttempt = weekday == 2 /* Monday */ ||
+            (summaries.first?.weekStart != Date().startOfWeek)
+
+        guard shouldAttempt,
+              WeeklySummaryService.shared.shouldGenerateSummary(context: modelContext),
+              !isGeneratingSummary else { return }
+
+        isGeneratingSummary = true
+        _ = await WeeklySummaryService.shared.generateWeeklySummary(
+            userName: appState.userName,
+            isPro: appState.userTier == .pro,
+            context: modelContext
+        )
+        isGeneratingSummary = false
+    }
+
+    // MARK: - Activity Calendar
     private var activityCalendar: some View {
         VStack(alignment: .leading, spacing: Spacing.sm) {
             Text("ACTIVIDAD — ÚLTIMOS 30 DÍAS")
                 .sereneSectionHeader()
                 .foregroundColor(SereneColors.textTertiary(colorScheme))
 
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 3), count: 7), spacing: 3) {
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 3), count: 10), spacing: 3) {
                 ForEach(0..<30, id: \.self) { dayOffset in
                     let date = Calendar.current.date(byAdding: .day, value: -(29 - dayOffset), to: Date())!
                     let count = gratitudeCount(for: date)
                     RoundedRectangle(cornerRadius: 2)
                         .fill(activityColor(count: count))
-                        .frame(height: 14)
+                        .frame(height: 18)
                 }
             }
 
-            // Legend
             HStack(spacing: Spacing.sm) {
                 Text("Menos")
                     .sereneMicro()
@@ -82,14 +101,7 @@ struct InsightsView: View {
             }
         }
         .padding(Spacing.md)
-        .background(
-            RoundedRectangle(cornerRadius: Radius.md)
-                .fill(SereneColors.surface(colorScheme))
-                .overlay(
-                    RoundedRectangle(cornerRadius: Radius.md)
-                        .stroke(SereneColors.borderDefault(colorScheme), lineWidth: BorderWidth.default)
-                )
-        )
+        .sereneSurface()
     }
 
     private func gratitudeCount(for date: Date) -> Int {
@@ -107,6 +119,20 @@ struct InsightsView: View {
     }
 
     // MARK: - Weekly Summary
+    @ViewBuilder
+    private var weeklySummarySection: some View {
+        if let latest = summaries.first {
+            Button {
+                selectedSummary = latest
+            } label: {
+                weeklySummaryCard(latest)
+            }
+            .buttonStyle(SerenePressableStyle())
+        } else {
+            weeklySummaryPlaceholder
+        }
+    }
+
     private func weeklySummaryCard(_ summary: WeeklySummaryEntry) -> some View {
         VStack(alignment: .leading, spacing: Spacing.md) {
             HStack {
@@ -117,27 +143,36 @@ struct InsightsView: View {
                     .foregroundColor(SereneColors.textTertiary(colorScheme))
                 Spacer()
                 Text(summary.dominantEmoji)
-                    .font(.system(size: 20))
+                    .font(.system(size: 24))
             }
 
             Text(summary.narrative)
                 .sereneBody()
                 .foregroundColor(SereneColors.textPrimary(colorScheme))
+                .multilineTextAlignment(.leading)
+                .lineLimit(4)
 
             if !summary.topTopics.isEmpty {
                 HStack(spacing: Spacing.sm) {
-                    ForEach(summary.topTopics, id: \.self) { topic in
+                    ForEach(summary.topTopics.prefix(3), id: \.self) { topic in
                         Text(topic)
                             .sereneMicro()
                             .foregroundColor(SereneColors.sage(colorScheme))
                             .padding(.horizontal, Spacing.sm)
                             .padding(.vertical, Spacing.xs)
-                            .background(
-                                Capsule()
-                                    .fill(SereneColors.sageSoft(colorScheme))
-                            )
+                            .background(Capsule().fill(SereneColors.sageSoft(colorScheme)))
                     }
                 }
+            }
+
+            HStack {
+                Spacer()
+                Text("Ver completo")
+                    .sereneMicro()
+                    .foregroundColor(SereneColors.sage(colorScheme))
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundColor(SereneColors.sage(colorScheme))
             }
         }
         .padding(Spacing.md)
@@ -146,26 +181,32 @@ struct InsightsView: View {
                 .fill(SereneColors.cardElevated(colorScheme))
                 .overlay(
                     RoundedRectangle(cornerRadius: Radius.md)
-                        .stroke(SereneColors.sage(colorScheme).opacity(0.3), lineWidth: 1)
+                        .stroke(SereneColors.sage(colorScheme).opacity(0.25), lineWidth: 1)
                 )
         )
     }
 
     private var weeklySummaryPlaceholder: some View {
         VStack(spacing: Spacing.md) {
-            Image(systemName: "text.bubble")
-                .font(.system(size: 28))
-                .foregroundColor(SereneColors.textTertiary(colorScheme))
-
-            Text("Tu primer resumen semanal aparecerá aquí")
-                .sereneBody()
-                .foregroundColor(SereneColors.textSecondary(colorScheme))
-                .multilineTextAlignment(.center)
-
-            Text("Sigue escribiendo gratitudes y tu coach preparará un resumen personalizado cada lunes")
-                .sereneMicro()
-                .foregroundColor(SereneColors.textTertiary(colorScheme))
-                .multilineTextAlignment(.center)
+            if isGeneratingSummary {
+                ProgressView()
+                    .tint(SereneColors.sage(colorScheme))
+                Text("Tu coach está preparando tu resumen...")
+                    .sereneBody()
+                    .foregroundColor(SereneColors.textSecondary(colorScheme))
+            } else {
+                Image(systemName: "text.bubble")
+                    .font(.system(size: 28))
+                    .foregroundColor(SereneColors.textTertiary(colorScheme))
+                Text("Tu primer resumen semanal aparecerá aquí")
+                    .sereneBody()
+                    .foregroundColor(SereneColors.textSecondary(colorScheme))
+                    .multilineTextAlignment(.center)
+                Text("Sigue escribiendo gratitudes y tu coach preparará un resumen personalizado cada lunes")
+                    .sereneMicro()
+                    .foregroundColor(SereneColors.textTertiary(colorScheme))
+                    .multilineTextAlignment(.center)
+            }
         }
         .frame(maxWidth: .infinity)
         .padding(Spacing.lg)
@@ -174,9 +215,58 @@ struct InsightsView: View {
                 .fill(SereneColors.surface(colorScheme))
                 .overlay(
                     RoundedRectangle(cornerRadius: Radius.md)
-                        .stroke(SereneColors.borderDefault(colorScheme), style: StrokeStyle(lineWidth: 1, dash: [5, 3]))
+                        .stroke(SereneColors.borderDefault(colorScheme),
+                                style: StrokeStyle(lineWidth: 1, dash: [5, 3]))
                 )
         )
+    }
+
+    // MARK: - Historical Summaries (Pro)
+    private var historicalSummariesSection: some View {
+        Group {
+            if summaries.count > 1 {
+                VStack(alignment: .leading, spacing: Spacing.sm) {
+                    Text("RESÚMENES ANTERIORES")
+                        .sereneSectionHeader()
+                        .foregroundColor(SereneColors.textTertiary(colorScheme))
+
+                    ForEach(summaries.dropFirst().prefix(5)) { summary in
+                        Button {
+                            selectedSummary = summary
+                        } label: {
+                            HStack(spacing: Spacing.md) {
+                                Text(summary.dominantEmoji)
+                                    .font(.system(size: 22))
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(weekRangeText(for: summary))
+                                        .sereneLabel()
+                                        .foregroundColor(SereneColors.textPrimary(colorScheme))
+                                    Text(summary.narrative)
+                                        .sereneMicro()
+                                        .foregroundColor(SereneColors.textSecondary(colorScheme))
+                                        .lineLimit(1)
+                                }
+                                Spacer()
+                                Image(systemName: "chevron.right")
+                                    .font(.system(size: 12, weight: .medium))
+                                    .foregroundColor(SereneColors.textTertiary(colorScheme))
+                            }
+                            .padding(Spacing.md)
+                            .sereneSurface()
+                        }
+                        .buttonStyle(SerenePressableStyle())
+                    }
+                }
+            }
+        }
+    }
+
+    private func weekRangeText(for summary: WeeklySummaryEntry) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "es")
+        formatter.dateFormat = "d MMM"
+        let end = Calendar.current.date(byAdding: .day, value: 6, to: summary.weekStart) ?? summary.weekStart
+        return "\(formatter.string(from: summary.weekStart)) — \(formatter.string(from: end))"
     }
 
     // MARK: - Top Topics
@@ -192,34 +282,36 @@ struct InsightsView: View {
                     .foregroundColor(SereneColors.textTertiary(colorScheme))
             } else {
                 let topics = extractTopTopics()
-                ForEach(topics, id: \.0) { topic, count in
-                    HStack {
-                        Text(topic)
-                            .sereneBody()
-                            .foregroundColor(SereneColors.textPrimary(colorScheme))
-                        Spacer()
-                        Text("\(count)x")
-                            .sereneLabel()
-                            .foregroundColor(SereneColors.textTertiary(colorScheme))
+                if topics.isEmpty {
+                    Text("Aún no hay suficiente contenido para detectar patrones")
+                        .sereneBody()
+                        .foregroundColor(SereneColors.textTertiary(colorScheme))
+                } else {
+                    ForEach(topics, id: \.0) { topic, count in
+                        HStack {
+                            Text(topic)
+                                .sereneBody()
+                                .foregroundColor(SereneColors.textPrimary(colorScheme))
+                            Spacer()
+                            Text("\(count)x")
+                                .sereneLabel()
+                                .foregroundColor(SereneColors.textTertiary(colorScheme))
+                        }
+                        .padding(.vertical, Spacing.xs)
                     }
-                    .padding(.vertical, Spacing.xs)
                 }
             }
         }
         .padding(Spacing.md)
-        .background(
-            RoundedRectangle(cornerRadius: Radius.md)
-                .fill(SereneColors.surface(colorScheme))
-                .overlay(
-                    RoundedRectangle(cornerRadius: Radius.md)
-                        .stroke(SereneColors.borderDefault(colorScheme), lineWidth: BorderWidth.default)
-                )
-        )
+        .sereneSurface()
     }
 
     private func extractTopTopics() -> [(String, Int)] {
-        // Simple keyword extraction from recent gratitudes
-        let stopWords = Set(["hoy", "agradezco", "por", "que", "una", "uno", "del", "los", "las", "con", "para", "como", "más", "muy", "fue", "ser", "este", "esta", "eso", "esa"])
+        let stopWords: Set<String> = [
+            "hoy", "agradezco", "por", "que", "una", "uno", "del", "los", "las",
+            "con", "para", "como", "más", "muy", "fue", "ser", "este", "esta",
+            "eso", "esa", "tengo", "estar", "también", "había",
+        ]
         var wordCounts: [String: Int] = [:]
 
         for entry in recentGratitudes.prefix(50) {
@@ -248,7 +340,6 @@ struct InsightsView: View {
                     .sereneBody()
                     .foregroundColor(SereneColors.textTertiary(colorScheme))
             } else {
-                // Simple emoji-based mood summary
                 let moodCounts = Dictionary(grouping: recentGratitudes.prefix(30)) { $0.emoji }
                     .mapValues { $0.count }
                     .sorted { $0.value > $1.value }
@@ -268,14 +359,7 @@ struct InsightsView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(Spacing.md)
-        .background(
-            RoundedRectangle(cornerRadius: Radius.md)
-                .fill(SereneColors.surface(colorScheme))
-                .overlay(
-                    RoundedRectangle(cornerRadius: Radius.md)
-                        .stroke(SereneColors.borderDefault(colorScheme), lineWidth: BorderWidth.default)
-                )
-        )
+        .sereneSurface()
     }
 
     // MARK: - Pro Locked
@@ -290,26 +374,20 @@ struct InsightsView: View {
             }
 
             VStack(alignment: .leading, spacing: Spacing.sm) {
-                proFeatureRow("Patrones emocionales semanales")
+                proFeatureRow("Resúmenes semanales ilimitados")
+                proFeatureRow("Histórico completo de resúmenes")
+                proFeatureRow("Patrones emocionales avanzados")
                 proFeatureRow("Conexiones inesperadas entre entradas")
-                proFeatureRow("Evolución del lenguaje emocional")
                 proFeatureRow("Exportar historial en PDF")
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
 
             Button {
                 // Navigate to subscription
             } label: {
                 Text("Desbloquear con Pro")
-                    .sereneBody(14)
-                    .fontWeight(.semibold)
-                    .foregroundColor(.white)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 12)
-                    .background(
-                        RoundedRectangle(cornerRadius: Radius.md)
-                            .fill(SereneColors.arena(colorScheme))
-                    )
             }
+            .buttonStyle(SerenePrimaryButtonStyle())
         }
         .padding(Spacing.md)
         .background(
@@ -333,6 +411,8 @@ struct InsightsView: View {
         }
     }
 }
+
+extension WeeklySummaryEntry: @retroactive Identifiable {}
 
 #Preview {
     InsightsView()

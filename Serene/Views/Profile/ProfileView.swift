@@ -245,7 +245,36 @@ struct ProfileView: View {
                     .padding(.leading, 52)
 
                 settingRow(icon: "moon.fill", title: "Apariencia") {
-                    Text("Sistema")
+                    Menu {
+                        ForEach(AppAppearance.allCases) { option in
+                            Button {
+                                appState.appearance = option
+                            } label: {
+                                HStack {
+                                    Text(option.label)
+                                    if appState.appearance == option {
+                                        Image(systemName: "checkmark")
+                                    }
+                                }
+                            }
+                        }
+                    } label: {
+                        HStack(spacing: 4) {
+                            Text(appState.appearance.label)
+                                .sereneLabel()
+                                .foregroundColor(SereneColors.textTertiary(colorScheme))
+                            Image(systemName: "chevron.up.chevron.down")
+                                .font(.system(size: 10))
+                                .foregroundColor(SereneColors.textTertiary(colorScheme))
+                        }
+                    }
+                }
+
+                Divider()
+                    .padding(.leading, 52)
+
+                settingRow(icon: "heart.circle", title: "Rescates de racha") {
+                    Text("\(max(0, 1 - (streak?.rescuesUsedThisMonth ?? 0)))/1")
                         .sereneLabel()
                         .foregroundColor(SereneColors.textTertiary(colorScheme))
                 }
